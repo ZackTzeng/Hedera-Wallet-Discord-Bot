@@ -38,16 +38,17 @@ async function dblist() {
     })
 }
 
-async function checkOrInitAccount(uid) {
+async function checkOrInitAccount(uid, val = 10) {
     obj = await dbget(uid);
     if (obj == null) {
         console.log('Creating new account...')
-        obj = await hedera.createAccount(10);
+        console.log(uid)
+        obj = await hedera.createAccount(val);
         await dbset(uid, obj);
     }
-    // console.log("Found account...")
-    // console.log(obj)
-    // console.log("...returning object.")
+    console.log("Found account...")
+    console.log(obj)
+    console.log("...returning object.")
     return obj;
 }
 
@@ -66,33 +67,35 @@ async function send$(from_uid, to_uid, amount, channel) {
 
 async function activity(uid, user, points, channel, op) {
     user.activity += points;
+    await dbset(uid, user);
     t = await dbget('tokens');
     // console.log(t);
-    if (user.activity == 0.85) {
+    if (user.activity == 0.75) {
         await channel.send("<@" + uid + "> you've leveled up to become a Hedera Pal!");
         //gift a rick 
         await channel.send("<@" + uid + "> you've leveled received a Rick. Type $rick");
-        await hedera.transferToken(op.accountId, op.priKey, user.accountId, 1, t.rick);
+        await hedera.transferToken(op.accountId, op.priKey, user.accountId, user.priKey, 1, t.rick);
     } else if (user.activity == 1.5) {
         await channel.send("<@" + uid + "> you've leveled up to become a Hedera Pro!");
         //gift a mute
         await channel.send("<@" + uid + "> you've leveled received a power to mute someone for 5 seconds! Type $mute");
-        await hedera.transferToken(op.accountId, op.priKey, user.accountId, 1, t.mute);
+        await hedera.transferToken(op.accountId, op.priKey, user.accountId, user.priKey, 1, t.mute);
     } else if (user.activity == 7.5) {
         await channel.send("<@" + uid + "> you've leveled up to become a Hedera Ultimatum! HAIL HEDERA!");
         //gift a nuke
         await channel.send("<@" + uid + "> you've leveled received the NUKE... Type $nuke...");
-        await hedera.transferToken(op.accountId, op.priKey, user.accountId, 1, t.nuke);
+        await hedera.transferToken(op.accountId, op.priKey, user.accountId, user.priKey, 1, t.nuke);
     }
 }
 
 async function spendToken(uid, tokenId) {
     user = await checkOrInitAccount(uid);
     amount = await hedera.queryAccountBalance(user.accountId, tokenId);
+    console.log(amount);
     if (amount > 0) {
         op = await dbget('op');
         user = await dbget(uid);
-        await hedera.transferToken(user.accountId, user.priKey, op.accountId, 1, tokenId);
+        await hedera.transferToken(user.accountId, user.priKey, op.accountId, op.priKey, 1, tokenId);
         return true;
     } else {
         return false;
@@ -152,10 +155,19 @@ client.on('messageCreate', async msg => {
             // console.log(rsp);
             // add something about reaction to confirm
             // will have to jump out to the on reaction add listener
-            await send$(msg.author.id, recepients.at(0), amount, msg.channel);
+            await send$(msg.author.id, recepients.at(0).id, amount, msg.channel);
         } else if (msg.content.startsWith("$see")) {
-            // do something to show your account in your DM for privacy
-            bal = await see$(msg.author.id);
+            recepients = msg.mentions.users;
+            let bal = "";
+            if (recepients.size > 0) {
+                let seeid = recepients.at(0).id;
+                if (seeid == client.user.id) {
+                    seeid = 'op';
+                }
+                bal = await see$(seeid);
+            } else {
+                bal = await see$(msg.author.id);
+            }
             await msg.channel.send("You have: " + bal.hbar + "hbar, " +
                 bal.nuke + " nukes" + emnuke +
                 bal.mute + " mutes" + emmute +
@@ -172,7 +184,7 @@ client.on('messageCreate', async msg => {
             console.log("Done list.")
         } else if (msg.content.startsWith("$rick")) {
             t = await dbget("tokens");
-            if (true) {//spendToken(msg.author.id, t.rick)) {
+            if (await spendToken(msg.author.id, t.rick)) {
                 recepients = msg.mentions.users;
                 let arr = [];
                 for (var i = 0; i < recepients.size; i++) {
@@ -184,7 +196,7 @@ client.on('messageCreate', async msg => {
             }
         } else if (msg.content.startsWith("$mute")) {
             t = await dbget("tokens");
-            if (true) {//spendToken(msg.author.id, t.mute)) {
+            if (await spendToken(msg.author.id, t.mute)) {
                 recepients = msg.mentions.users;
                 let arr = [];
                 for (var i = 0; i < recepients.size; i++) {
@@ -195,7 +207,18 @@ client.on('messageCreate', async msg => {
                 setTimeout(async function() { await dbset("mute", null) }, 13000);
             }
         } else if (msg.content.startsWith("$nuke")) {
-
+            t = await dbget("tokens");
+            if (await spendToken(msg.author.id, t.nuke    )) {
+                await msg.channel.send("3...");
+                setTimeout(async function() { await msg.channel.send("2..") }, 1000);
+                setTimeout(async function() {
+                    await msg.channel.send("1.")
+                    await msg.channel.send(lnnuke)
+                }, 2200);
+                setTimeout(async function() {
+                    await msg.channel.delete();
+                }, 3220);
+            }
         }
     }
 });
